@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  role_name: ssh_hardening
+  author: jerry
+  description: Production SSH hardening — SSH, UFW, Fail2ban
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - ssh
+    - security
+    - hardening
+    - ufw
+    - fail2ban
+
+dependencies: []

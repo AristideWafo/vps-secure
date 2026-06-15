@@ -1,0 +1,34 @@
+---
+# Playbook : SSH Hardening
+# Cible : tous les serveurs de l'inventaire actif
+# Usage :
+#   ansible-playbook -i inventories/dev playbooks/ssh_hardening.yml
+#   ansible-playbook -i inventories/dev playbooks/ssh_hardening.yml --tags ssh
+#   ansible-playbook -i inventories/dev playbooks/ssh_hardening.yml --check
+
+- name: Harden SSH access on all servers
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify target OS is Ubuntu
+      assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+        fail_msg: >
+          Ce rôle supporte uniquement Ubuntu (Jammy / Noble).
+          Distribution détectée : {{ ansible_distribution }} {{ ansible_distribution_version }}
+      tags: always
+
+    - name: Deploy authorized SSH keys for ubuntu
+      ansible.posix.authorized_key:
+        user: ubuntu
+        state: present
+        key: "{{ item }}"
+      loop: "{{ ssh_authorized_keys | select('ne', '') | list }}"
+      tags: [always, keys]
+
+  roles:
+    - role: ssh_hardening
+      tags: ssh_hardening

@@ -1,0 +1,12 @@
+---
+- name: Ssh_hardening | restart sshd
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+  listen: "ssh_hardening | restart sshd"
+
+- name: Ssh_hardening | restart fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    state: restarted
+  listen: "ssh_hardening | restart fail2ban"

@@ -1,0 +1,24 @@
+---
+- name: ssh_hardening | ensure ufw is installed
+  ansible.builtin.package:
+    name: ufw
+    state: present
+
+- name: ssh_hardening | set default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: "{{ ssh_hardening_ufw_policy_incoming }}" }
+    - { direction: outgoing, policy: "{{ ssh_hardening_ufw_policy_outgoing }}" }
+
+- name: ssh_hardening | apply ufw rules
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+  loop: "{{ ssh_hardening_ufw_rules }}"
+
+- name: ssh_hardening | enable ufw
+  community.general.ufw:
+    state: enabled

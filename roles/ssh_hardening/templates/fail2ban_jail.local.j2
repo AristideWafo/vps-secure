@@ -1,0 +1,14 @@
+# Managed by Ansible — ssh_hardening role.
+
+[DEFAULT]
+ignoreip = {{ ssh_hardening_fail2ban_ignore_ips | join(' ') }}
+bantime  = {{ ssh_hardening_fail2ban_ban_time }}
+findtime = {{ ssh_hardening_fail2ban_find_time }}
+maxretry = {{ ssh_hardening_fail2ban_max_retry }}
+backend  = {{ ssh_hardening_fail2ban_backend }}
+
+[sshd]
+enabled  = true
+port     = {{ ssh_hardening_port }}
+filter   = sshd
+logpath  = %(sshd_log)s

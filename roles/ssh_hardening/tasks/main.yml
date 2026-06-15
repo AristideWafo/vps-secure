@@ -1,0 +1,19 @@
+---
+- name: ssh_hardening | validate
+  import_tasks: validate.yml
+  tags: always
+
+- name: ssh_hardening | configure ssh
+  import_tasks: ssh.yml
+  when: ssh_hardening_configure_ssh | bool
+  tags: ssh
+
+- name: ssh_hardening | configure ufw
+  import_tasks: ufw.yml
+  when: ssh_hardening_configure_ufw | bool
+  tags: ufw
+
+- name: ssh_hardening | configure fail2ban
+  import_tasks: fail2ban.yml
+  when: ssh_hardening_configure_fail2ban | bool
+  tags: fail2ban

@@ -1,0 +1,52 @@
+# Managed by Ansible — ssh_hardening role. Do not edit manually.
+
+Port {{ ssh_hardening_port }}
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Host keys
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Crypto
+KexAlgorithms {{ ssh_hardening_kex_algorithms | join(',') }}
+Ciphers {{ ssh_hardening_ciphers | join(',') }}
+MACs {{ ssh_hardening_macs | join(',') }}
+
+# Auth
+PermitRootLogin {{ ssh_hardening_permit_root_login }}
+PubkeyAuthentication {{ ssh_hardening_pubkey_authentication }}
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication {{ ssh_hardening_password_authentication }}
+PermitEmptyPasswords {{ ssh_hardening_permit_empty_passwords }}
+ChallengeResponseAuthentication {{ ssh_hardening_challenge_response }}
+UsePAM {{ ssh_hardening_use_pam }}
+
+# Access control
+{% if ssh_hardening_allow_groups | length > 0 %}
+AllowGroups {{ ssh_hardening_allow_groups | join(' ') }}
+{% elif ssh_hardening_allow_users | length > 0 %}
+AllowUsers {{ ssh_hardening_allow_users | join(' ') }}
+{% endif %}
+
+# Session
+LoginGraceTime {{ ssh_hardening_login_grace_time }}
+MaxAuthTries {{ ssh_hardening_max_auth_tries }}
+MaxSessions {{ ssh_hardening_max_sessions }}
+ClientAliveInterval {{ ssh_hardening_client_alive_interval }}
+ClientAliveCountMax {{ ssh_hardening_client_alive_count_max }}
+
+# Forwarding
+X11Forwarding {{ ssh_hardening_x11_forwarding }}
+AllowAgentForwarding {{ ssh_hardening_allow_agent_forwarding }}
+AllowTcpForwarding {{ ssh_hardening_allow_tcp_forwarding }}
+
+# Logging
+SyslogFacility {{ ssh_hardening_syslog_facility }}
+LogLevel {{ ssh_hardening_log_level }}
+
+# Misc
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server

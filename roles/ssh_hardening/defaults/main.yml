@@ -1,0 +1,65 @@
+---
+# Section toggles
+ssh_hardening_configure_ssh: true
+ssh_hardening_configure_ufw: true
+ssh_hardening_configure_fail2ban: true
+
+# SSH core
+ssh_hardening_port: 2222
+ssh_hardening_permit_root_login: "no"
+ssh_hardening_password_authentication: "no"
+ssh_hardening_pubkey_authentication: "yes"
+ssh_hardening_permit_empty_passwords: "no"
+ssh_hardening_challenge_response: "no"
+ssh_hardening_use_pam: "yes"
+ssh_hardening_x11_forwarding: "no"
+ssh_hardening_allow_agent_forwarding: "no"
+ssh_hardening_allow_tcp_forwarding: "no"
+ssh_hardening_max_auth_tries: 3
+ssh_hardening_max_sessions: 5
+ssh_hardening_login_grace_time: 30
+
+# Session keepalive
+ssh_hardening_client_alive_interval: 300
+ssh_hardening_client_alive_count_max: 2
+
+# Logging
+ssh_hardening_log_level: "VERBOSE"
+ssh_hardening_syslog_facility: "AUTH"
+
+# Access control
+ssh_hardening_allow_groups: []
+ssh_hardening_allow_users: []
+
+# Crypto
+ssh_hardening_kex_algorithms:
+  - curve25519-sha256
+  - curve25519-sha256@libssh.org
+  - diffie-hellman-group14-sha256
+  - diffie-hellman-group16-sha512
+
+ssh_hardening_ciphers:
+  - chacha20-poly1305@openssh.com
+  - aes256-gcm@openssh.com
+  - aes128-gcm@openssh.com
+
+ssh_hardening_macs:
+  - hmac-sha2-512-etm@openssh.com
+  - hmac-sha2-256-etm@openssh.com
+
+# UFW
+ssh_hardening_ufw_policy_incoming: deny
+ssh_hardening_ufw_policy_outgoing: allow
+ssh_hardening_ufw_rules:
+  - { rule: limit, port: "{{ ssh_hardening_port }}", proto: tcp }
+  - { rule: allow, port: 80,  proto: tcp }
+  - { rule: allow, port: 443, proto: tcp }
+
+# Fail2ban
+ssh_hardening_fail2ban_backend: systemd
+ssh_hardening_fail2ban_max_retry: 5
+ssh_hardening_fail2ban_ban_time: 3600
+ssh_hardening_fail2ban_find_time: 600
+ssh_hardening_fail2ban_ignore_ips:
+  - 127.0.0.1/8
+  - ::1

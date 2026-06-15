@@ -1,0 +1,29 @@
+---
+# ─── SSH Hardening — override des valeurs par environnement ───────────────────
+
+# Port SSH (doit correspondre à ce que le firewall AWS/OVH expose)
+ssh_hardening_port: 2222
+
+# Contrôle d'accès — obligatoire (la validation du rôle échoue si vide)
+ssh_hardening_allow_users:
+  - ubuntu
+
+ssh_hardening_allow_groups: []
+
+# ─── Clés SSH autorisées ──────────────────────────────────────────────────────
+# Ajoute ici toutes les clés publiques autorisées à se connecter en tant qu'ubuntu.
+# Récupère ta clé avec : cat ~/.ssh/id_ed25519.pub (ou id_rsa.pub)
+ssh_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEl1W4JAJ0whK4I8ORq3xK5NoAvckrdpmweAVajchc7J aristide@fairfare"
+
+# Fail2ban — IPs exclues des bans
+ssh_hardening_fail2ban_ignore_ips:
+  - 127.0.0.1/8
+  - ::1
+  # Ajoute ton IP fixe ou VPN ici si nécessaire
+
+# UFW — règles supplémentaires (au-delà de SSH, 80, 443)
+# ssh_hardening_ufw_rules est entièrement défini dans defaults/main.yml
+# Pour ajouter des règles, décommente et complète ci-dessous :
+# ssh_hardening_ufw_extra_rules:
+#   - { rule: allow, port: 5432, proto: tcp }

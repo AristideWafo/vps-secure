@@ -1,0 +1,23 @@
+---
+- name: ssh_hardening | assert port is valid
+  assert:
+    that:
+      - ssh_hardening_port is defined
+      - ssh_hardening_port | int > 0
+      - ssh_hardening_port | int < 65535
+    fail_msg: "ssh_hardening_port must be a valid port number."
+  tags: always
+
+- name: ssh_hardening | assert access control is set
+  assert:
+    that:
+      - (ssh_hardening_allow_groups | length > 0) or (ssh_hardening_allow_users | length > 0)
+    fail_msg: "Set ssh_hardening_allow_groups or ssh_hardening_allow_users — empty = any user can connect."
+  tags: always
+
+- name: ssh_hardening | warn about lockout risk
+  debug:
+    msg: >
+      WARNING: Ensure your current user belongs to allow_groups or allow_users
+      and that port {{ ssh_hardening_port }} is reachable before applying.
+  tags: always
