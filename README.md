@@ -25,6 +25,17 @@ cd vps-secure
 repo to `~/.vpssecure` first, then links the CLI. Override with
 `VPSSECURE_REPO_URL`, `VPSSECURE_HOME`, `VPSSECURE_BIN_DIR` env vars if needed.
 
+### Uninstall
+
+```bash
+./uninstall.sh          # or: ./install.sh --uninstall
+```
+
+Removes the `vpssecure` symlink from your PATH. If it was installed standalone
+(cloned to `~/.vpssecure`), asks before deleting that clone too. Never touches
+a repo you cloned and ran `install.sh` from directly, your Ansible collections,
+or any `inventories/<env>/` directories you created.
+
 ### Use
 
 Run `vpssecure` with no arguments for an interactive menu (server init, scan,
