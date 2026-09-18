@@ -9,10 +9,43 @@ Applies the `ssh_hardening` role which configures:
 
 ---
 
+## Quick start — CLI
+
+### Install
+
+```bash
+git clone https://github.com/AristideWafo/vps-secure.git
+cd vps-secure
+./install.sh      # links `vpssecure` into ~/.local/bin
+# or, to install and jump straight into the interactive menu:
+./run.sh
+```
+
+`install.sh` also works standalone (downloaded outside a clone): it clones the
+repo to `~/.vpssecure` first, then links the CLI. Override with
+`VPSSECURE_REPO_URL`, `VPSSECURE_HOME`, `VPSSECURE_BIN_DIR` env vars if needed.
+
+### Use
+
+Run `vpssecure` with no arguments for an interactive menu (server init, scan,
+harden, status), or use scriptable subcommands directly:
+
+```bash
+vpssecure init   --env prod                       # interactive setup
+vpssecure scan   --env prod --limit vps-01         # read-only audit, no changes
+vpssecure harden --env prod --limit vps-01 --check # dry-run (default)
+vpssecure harden --env prod --limit vps-01 --apply # applies, asks for confirmation
+vpssecure status --env prod                        # live sshd/ufw/fail2ban state
+```
+
+`harden` defaults to `--check`; `--apply` requires typing `yes` to confirm (lockout risk).
+
+---
+
 ## Requirements
 
 - Ansible ≥ 2.14 (`pip install ansible`)
-- Collection `ansible.posix`: `ansible-galaxy collection install ansible.posix`
+- Required collections: `ansible-galaxy collection install -r requirements.yml`
 - SSH access to the server (password for the first run, key-based afterwards)
 
 ---

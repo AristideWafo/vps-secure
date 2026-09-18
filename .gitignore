@@ -1,0 +1,17 @@
+# OS / editor junk
+.DS_Store
+*.swp
+
+# Ansible runtime artifacts
+*.retry
+*.log
+
+# Vault secrets — never commit decrypted vault content
+vault.yml
+*.vault.yml
+
+# Any inventory other than the generic `dev` example/template is assumed to
+# hold real hosts, IPs and keys and must never be committed.
+inventories/*
+!inventories/dev
+!inventories/dev/**

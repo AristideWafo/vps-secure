@@ -14,7 +14,7 @@ ssh_hardening_allow_groups: []
 # Ajoute ici toutes les clés publiques autorisées à se connecter en tant qu'ubuntu.
 # Récupère ta clé avec : cat ~/.ssh/id_ed25519.pub (ou id_rsa.pub)
 ssh_authorized_keys:
-  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEl1W4JAJ0whK4I8ORq3xK5NoAvckrdpmweAVajchc7J aristide@fairfare"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyReplaceMeWithYourOwnPublicKeyABCDEF you@example.com"
 
 # Fail2ban — IPs exclues des bans
 ssh_hardening_fail2ban_ignore_ips:
