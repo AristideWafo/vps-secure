@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+#
+# vpssecure — CLI wrapper around the ssh_hardening Ansible role.
+# Wraps inventory setup, pre-flight scan, hardening apply, and status check
+# so a user does not have to hand-edit YAML or remember ansible-playbook flags.
+#
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+BOLD="$(tput bold 2>/dev/null || true)"
+RED="$(tput setaf 1 2>/dev/null || true)"
+GREEN="$(tput setaf 2 2>/dev/null || true)"
+YELLOW="$(tput setaf 3 2>/dev/null || true)"
+RESET="$(tput sgr0 2>/dev/null || true)"
+
+log()  { echo "${BOLD}==>${RESET} $*"; }
+ok()   { echo "${GREEN}✓${RESET} $*"; }
+warn() { echo "${YELLOW}!${RESET} $*"; }
+err()  { echo "${RED}✗${RESET} $*" >&2; }
+
+usage() {
+  cat <<EOF
+vpssecure — harden a VPS's SSH access without touching raw Ansible YAML.
+
+Usage:
+  vpssecure init   [--env NAME]                  Interactive setup of a new inventory
+  vpssecure scan   [--env NAME] [--limit HOST]    Read-only audit of current server state
+  vpssecure harden [--env NAME] [--limit HOST] [--check|--apply] [--tags TAGS]
+                                                   Apply (or dry-run) the hardening role
+  vpssecure status [--env NAME] [--limit HOST]    Show sshd/ufw/fail2ban live status
+  vpssecure -h | --help                           Show this help
+
+Defaults: --env dev, harden defaults to --check (dry-run) unless --apply is passed.
+
+Examples:
+  vpssecure init --env prod
+  vpssecure scan --env prod --limit vps-01
+  vpssecure harden --env prod --limit vps-01 --check
+  vpssecure harden --env prod --limit vps-01 --apply
+  vpssecure status --env prod
+EOF
+}
+
+require_bin() {
+  command -v "$1" >/dev/null 2>&1 || { err "'$1' not found in PATH. Install it first."; exit 1; }
+}
+
+parse_common_args() {
+  ENV="dev"
+  LIMIT=""
+  TAGS=""
+  MODE="check"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env) ENV="$2"; shift 2 ;;
+      --limit) LIMIT="$2"; shift 2 ;;
+      --tags) TAGS="$2"; shift 2 ;;
+      --check) MODE="check"; shift ;;
+      --apply) MODE="apply"; shift ;;
+      *) err "Unknown argument: $1"; usage; exit 1 ;;
+    esac
+  done
+  INV_DIR="inventories/${ENV}"
+}
+
+cmd_init() {
+  parse_common_args "$@"
+
+  log "Setting up inventory '${ENV}'"
+  mkdir -p "${INV_DIR}/group_vars"
+
+  if [[ -f "${INV_DIR}/hosts.yml" ]]; then
+    warn "${INV_DIR}/hosts.yml already exists."
+    read -r -p "Overwrite? [y/N] " CONFIRM
+    [[ "$CONFIRM" =~ ^[Yy]$ ]] || { log "Aborted."; exit 0; }
+  fi
+
+  read -r -p "Server name (inventory alias) [vps-01]: " SRV_NAME
+  SRV_NAME="${SRV_NAME:-vps-01}"
+
+  read -r -p "Server IP or hostname: " SRV_HOST
+  [[ -n "$SRV_HOST" ]] || { err "Server IP/hostname is required."; exit 1; }
+
+  read -r -p "SSH user [ubuntu]: " SRV_USER
+  SRV_USER="${SRV_USER:-ubuntu}"
+
+  read -r -p "Current SSH port (22 on a fresh server) [22]: " SRV_PORT_NOW
+  SRV_PORT_NOW="${SRV_PORT_NOW:-22}"
+
+  read -r -p "Target SSH port after hardening [2222]: " SRV_PORT_TARGET
+  SRV_PORT_TARGET="${SRV_PORT_TARGET:-2222}"
+
+  read -r -p "Path to your SSH private key [~/.ssh/id_ed25519]: " SRV_KEY
+  SRV_KEY="${SRV_KEY:-~/.ssh/id_ed25519}"
+
+  PUB_KEY_PATH="${SRV_KEY}.pub"
+  PUB_KEY_PATH="${PUB_KEY_PATH/#\~/$HOME}"
+  SRV_PUBKEY=""
+  if [[ -f "$PUB_KEY_PATH" ]]; then
+    SRV_PUBKEY="$(cat "$PUB_KEY_PATH")"
+    ok "Found public key at ${PUB_KEY_PATH}"
+  else
+    warn "No public key found at ${PUB_KEY_PATH}."
+    read -r -p "Paste the public key to authorize (leave empty to add later): " SRV_PUBKEY
+  fi
+
+  cat > "${INV_DIR}/hosts.yml" <<YAML
+---
+all:
+  children:
+    servers:
+      hosts:
+        ${SRV_NAME}:
+          ansible_host: ${SRV_HOST}
+          ansible_user: ${SRV_USER}
+          ansible_port: ${SRV_PORT_NOW}
+          ansible_ssh_private_key_file: "${SRV_KEY}"
+# First run: keep ansible_port at ${SRV_PORT_NOW} (password auth still enabled).
+# After a successful apply, switch ansible_port to ${SRV_PORT_TARGET}.
+YAML
+
+  cat > "${INV_DIR}/group_vars/all.yml" <<YAML
+---
+ssh_hardening_port: ${SRV_PORT_TARGET}
+
+ssh_hardening_allow_users:
+  - ${SRV_USER}
+
+ssh_hardening_allow_groups: []
+
+ssh_authorized_keys:
+  - "${SRV_PUBKEY}"
+
+ssh_hardening_fail2ban_ignore_ips:
+  - 127.0.0.1/8
+  - ::1
+YAML
+
+  ok "Inventory written to ${INV_DIR}/"
+  log "Next: vpssecure scan --env ${ENV} --limit ${SRV_NAME}"
+}
+
+cmd_scan() {
+  parse_common_args "$@"
+  require_bin ansible
+  [[ -d "$INV_DIR" ]] || { err "No inventory at ${INV_DIR}. Run 'vpssecure init --env ${ENV}' first."; exit 1; }
+
+  BASE=(ansible servers -i "$INV_DIR")
+  [[ -n "$LIMIT" ]] && BASE+=(--limit "$LIMIT")
+  BASE+=(-b)
+
+  log "Scanning current server state (read-only, no changes made)"
+
+  echo
+  echo "${BOLD}-- sshd effective config --${RESET}"
+  "${BASE[@]}" \
+    -m ansible.builtin.shell -a "sshd -T | egrep -i '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication|maxauthtries)' " \
+    2>/dev/null || warn "Could not read sshd config (server unreachable or sudo issue)."
+
+  echo
+  echo "${BOLD}-- ufw status --${RESET}"
+  "${BASE[@]}" \
+    -m ansible.builtin.shell -a "ufw status verbose 2>/dev/null || echo 'ufw not installed'" \
+    2>/dev/null || warn "Could not read ufw status."
+
+  echo
+  echo "${BOLD}-- fail2ban status --${RESET}"
+  "${BASE[@]}" \
+    -m ansible.builtin.shell -a "systemctl is-active fail2ban 2>/dev/null || echo 'fail2ban not installed'" \
+    2>/dev/null || warn "Could not read fail2ban status."
+
+  echo
+  ok "Scan complete. Review above before running 'vpssecure harden'."
+}
+
+cmd_harden() {
+  parse_common_args "$@"
+  require_bin ansible-playbook
+  [[ -d "$INV_DIR" ]] || { err "No inventory at ${INV_DIR}. Run 'vpssecure init --env ${ENV}' first."; exit 1; }
+
+  ARGS=(-i "$INV_DIR" playbooks/ssh_hardening.yml)
+  [[ -n "$LIMIT" ]] && ARGS+=(--limit "$LIMIT")
+  [[ -n "$TAGS" ]] && ARGS+=(--tags "$TAGS")
+
+  if [[ "$MODE" == "check" ]]; then
+    warn "DRY RUN (--check) — no changes will be applied. Add --apply to actually harden."
+    ansible-playbook "${ARGS[@]}" --check --diff
+  else
+    warn "APPLY MODE — this will modify sshd_config, ufw and fail2ban on the target server(s)."
+    warn "Make sure you can reach the server on the CURRENT port before continuing (lockout risk)."
+    read -r -p "Type 'yes' to proceed: " CONFIRM
+    [[ "$CONFIRM" == "yes" ]] || { log "Aborted."; exit 0; }
+    ansible-playbook "${ARGS[@]}"
+    ok "Hardening applied. Remember to switch ansible_port to the target port in ${INV_DIR}/hosts.yml."
+  fi
+}
+
+cmd_status() {
+  parse_common_args "$@"
+  require_bin ansible
+  [[ -d "$INV_DIR" ]] || { err "No inventory at ${INV_DIR}. Run 'vpssecure init --env ${ENV}' first."; exit 1; }
+
+  BASE=(ansible servers -i "$INV_DIR")
+  [[ -n "$LIMIT" ]] && BASE+=(--limit "$LIMIT")
+  BASE+=(-b)
+
+  echo "${BOLD}-- sshd / ufw / fail2ban --${RESET}"
+  "${BASE[@]}" \
+    -m ansible.builtin.shell -a "systemctl is-active sshd ufw fail2ban 2>&1 | paste -sd ' | '" \
+    2>/dev/null || warn "Could not reach server(s)."
+
+  echo
+  echo "${BOLD}-- fail2ban active bans (sshd jail) --${RESET}"
+  "${BASE[@]}" \
+    -m ansible.builtin.shell -a "fail2ban-client status sshd 2>/dev/null || echo 'no data'" \
+    2>/dev/null || true
+}
+
+list_envs() {
+  [[ -d inventories ]] || return 0
+  find inventories -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 2>/dev/null | sort
+}
+
+prompt_env() {
+  local envs
+  envs="$(list_envs)"
+  if [[ -n "$envs" ]]; then
+    echo "Known environments:"
+    echo "$envs" | sed 's/^/  - /'
+  fi
+  read -r -p "Environment [dev]: " REPLY_ENV
+  echo "${REPLY_ENV:-dev}"
+}
+
+cmd_repl() {
+  echo "${BOLD}vpssecure${RESET} — interactive VPS hardening"
+  echo "Type 'help' any time to see this menu again. Ctrl+C or '0' to quit."
+  echo
+
+  while true; do
+    echo
+    echo "${BOLD}1)${RESET} Init a new server (interactive setup)"
+    echo "${BOLD}2)${RESET} Scan a server (read-only audit)"
+    echo "${BOLD}3)${RESET} Harden — dry run (--check, no changes)"
+    echo "${BOLD}4)${RESET} Harden — apply (real changes, asks confirmation)"
+    echo "${BOLD}5)${RESET} Status (sshd / ufw / fail2ban)"
+    echo "${BOLD}0)${RESET} Quit"
+    echo
+    read -r -p "vpssecure> " CHOICE
+
+    case "$CHOICE" in
+      1)
+        env="$(prompt_env)"
+        cmd_init --env "$env"
+        ;;
+      2)
+        env="$(prompt_env)"
+        read -r -p "Limit to host (empty = all): " limit
+        [[ -n "$limit" ]] && cmd_scan --env "$env" --limit "$limit" || cmd_scan --env "$env"
+        ;;
+      3)
+        env="$(prompt_env)"
+        read -r -p "Limit to host (empty = all): " limit
+        [[ -n "$limit" ]] && cmd_harden --env "$env" --limit "$limit" --check || cmd_harden --env "$env" --check
+        ;;
+      4)
+        env="$(prompt_env)"
+        read -r -p "Limit to host (empty = all): " limit
+        [[ -n "$limit" ]] && cmd_harden --env "$env" --limit "$limit" --apply || cmd_harden --env "$env" --apply
+        ;;
+      5)
+        env="$(prompt_env)"
+        read -r -p "Limit to host (empty = all): " limit
+        [[ -n "$limit" ]] && cmd_status --env "$env" --limit "$limit" || cmd_status --env "$env"
+        ;;
+      0|q|quit|exit) log "Bye."; exit 0 ;;
+      help|h|"") continue ;;
+      *) err "Unknown choice: $CHOICE" ;;
+    esac
+  done
+}
+
+if [[ $# -eq 0 ]]; then
+  cmd_repl
+  exit 0
+fi
+
+case "$1" in
+  init)   shift; cmd_init "$@" ;;
+  scan)   shift; cmd_scan "$@" ;;
+  harden) shift; cmd_harden "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  -h|--help) usage ;;
+  *) err "Unknown command: $1"; usage; exit 1 ;;
+esac
