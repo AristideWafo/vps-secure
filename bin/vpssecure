@@ -250,7 +250,10 @@ cmd_harden() {
     read -r -p "Type 'yes' to proceed: " CONFIRM
     [[ "$CONFIRM" == "yes" ]] || { log "Aborted."; exit 0; }
     ansible-playbook "${ARGS[@]}"
-    ok "Hardening applied. Remember to switch ansible_port to the target port in ${INV_DIR}/hosts.yml."
+    ok "Hardening applied."
+    log "The role itself verified the new port and disarmed the rollback timer if reachable (see the 'verify new port' task output above)."
+    log "If that task warned it couldn't confirm the new port, don't touch anything — it self-heals within the configured timeout."
+    log "Once confirmed working, update ansible_port in ${INV_DIR}/hosts.yml to the target port for future runs."
   fi
 }
 

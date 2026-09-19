@@ -26,6 +26,31 @@
     - ssh_hardening_verify_key_before_disabling_password | bool
     - ssh_hardening_password_authentication == "no"
 
+- name: ssh_hardening | back up current sshd_config before changing it
+  ansible.builtin.copy:
+    remote_src: true
+    src: /etc/ssh/sshd_config
+    dest: "{{ ssh_hardening_rollback_backup_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: ssh_hardening_enable_rollback_timer | bool
+
+- name: ssh_hardening | disarm any stale rollback timer from a previous run
+  ansible.builtin.command: systemctl stop vpssecure-rollback.timer vpssecure-rollback.service
+  register: ssh_hardening_stale_timer_stop
+  changed_when: ssh_hardening_stale_timer_stop.rc == 0
+  failed_when: false
+  when: ssh_hardening_enable_rollback_timer | bool
+
+- name: ssh_hardening | arm rollback timer (self-heals if never disarmed)
+  ansible.builtin.command:
+    cmd: >-
+      systemd-run --unit=vpssecure-rollback --on-active={{ ssh_hardening_rollback_timeout }}
+      /bin/bash -c 'cp {{ ssh_hardening_rollback_backup_path }} /etc/ssh/sshd_config && systemctl restart sshd'
+  changed_when: true
+  when: ssh_hardening_enable_rollback_timer | bool
+
 - name: ssh_hardening | deploy sshd_config
   ansible.builtin.template:
     src: sshd_config.j2
@@ -41,3 +66,48 @@
     name: sshd
     state: started
     enabled: true
+
+# Restart right away instead of deferring to end-of-play, so the actual risky
+# moment (sshd restart with the new config) stays inside the rollback timer's
+# window instead of trailing behind the ufw/fail2ban tasks that run after this.
+- name: ssh_hardening | apply sshd restart now (keep rollback window tight)
+  ansible.builtin.meta: flush_handlers
+
+# Self-contained verify-then-disarm: opens a *fresh* connection to the port
+# this play is actually configuring (not the connection Ansible is already
+# using — restarting sshd doesn't drop an established session, so the play
+# completing on its existing connection proves nothing about new
+# connections) and, only if that succeeds, disarms the timer through that
+# same connection. Runs for every caller — the CLI, a bare
+# `ansible-playbook`, CI — not just vpssecure's own post-apply check, so a
+# stale timer from a raw ansible-playbook run doesn't restart sshd on
+# someone unannounced 5 minutes later.
+- name: ssh_hardening | verify new port works and disarm rollback timer
+  ansible.builtin.command:
+    cmd: >-
+      ssh -o BatchMode=yes -o ConnectTimeout=10
+      {{ ansible_ssh_common_args | default('') }}
+      {{ ('-i ' ~ ansible_ssh_private_key_file) if ansible_ssh_private_key_file is defined else '' }}
+      -p {{ ssh_hardening_port }}
+      {{ ansible_user }}@{{ ansible_host | default(inventory_hostname) }}
+      sudo systemctl stop vpssecure-rollback.timer vpssecure-rollback.service
+  delegate_to: localhost
+  become: false
+  connection: local
+  changed_when: ssh_hardening_rollback_disarm.rc == 0
+  failed_when: false
+  register: ssh_hardening_rollback_disarm
+  when: ssh_hardening_enable_rollback_timer | bool
+
+- name: ssh_hardening | warn if the new port could not be verified
+  ansible.builtin.debug:
+    msg: >-
+      Could not confirm port {{ ssh_hardening_port }} works from the control
+      node — the rollback timer is still armed and will restore the previous
+      sshd_config plus restart sshd within {{ ssh_hardening_rollback_timeout }}
+      if nothing else disarms it. If this is expected (e.g. a cloud firewall
+      still needs to be opened for the new port), fix that now and re-run
+      before the timer fires.
+  when:
+    - ssh_hardening_enable_rollback_timer | bool
+    - ssh_hardening_rollback_disarm.rc != 0

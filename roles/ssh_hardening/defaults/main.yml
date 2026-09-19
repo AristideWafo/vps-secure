@@ -15,6 +15,16 @@ ssh_hardening_password_authentication: "no"
 # before it becomes a lockout. Only meaningful when disabling password
 # auth; skip only if you understand the risk.
 ssh_hardening_verify_key_before_disabling_password: true
+
+# Dead-man's-switch: before sshd_config is rewritten, back it up and schedule
+# a one-shot systemd timer that restores it and restarts sshd if nothing
+# disarms the timer within ssh_hardening_rollback_timeout. A crash, a wrong
+# config that still passes `sshd -t`, or a closed cloud firewall all self-heal
+# instead of leaving the server unreachable. `vpssecure harden --apply` disarms
+# it automatically once it confirms the new port actually works.
+ssh_hardening_enable_rollback_timer: true
+ssh_hardening_rollback_timeout: "5min"
+ssh_hardening_rollback_backup_path: /etc/ssh/sshd_config.vpssecure-backup
 ssh_hardening_pubkey_authentication: "yes"
 ssh_hardening_permit_empty_passwords: "no"
 ssh_hardening_challenge_response: "no"
