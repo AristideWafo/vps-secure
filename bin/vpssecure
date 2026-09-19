@@ -251,66 +251,9 @@ cmd_harden() {
     [[ "$CONFIRM" == "yes" ]] || { log "Aborted."; exit 0; }
     ansible-playbook "${ARGS[@]}"
     ok "Hardening applied."
-
-    if [[ -n "$LIMIT" ]]; then
-      verify_and_disarm_rollback "$LIMIT"
-    else
-      warn "No --limit given: skipped automatic post-apply verification."
-      warn "If a rollback timer was armed, confirm you can reach the server on its new port soon, or it will self-revert."
-    fi
-  fi
-}
-
-# After a real apply, confirms the target's new port is actually reachable
-# and, if so, disarms the rollback timer armed in roles/ssh_hardening/tasks
-# /ssh.yml. If the new port isn't reachable, does nothing further and tells
-# the user the timer will self-heal — never attempts its own recovery.
-verify_and_disarm_rollback() {
-  local host_alias="$1"
-  local hv
-  hv="$(ansible-inventory -i "$INV_DIR" --host "$host_alias" < /dev/null 2>/dev/null)"
-  if [[ -z "$hv" ]]; then
-    warn "Could not read inventory vars for ${host_alias}; verify access manually."
-    return
-  fi
-
-  local fields target_port ansible_host_v ansible_user_v key_file rollback_timeout
-  fields="$(python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-for k in ("ssh_hardening_port", "ansible_host", "ansible_user", "ansible_ssh_private_key_file", "ssh_hardening_rollback_timeout"):
-    print(f"{k}={d.get(k, \"\")}")
-' <<<"$hv" 2>/dev/null)"
-
-  target_port="$(echo "$fields" | sed -n 's/^ssh_hardening_port=//p')"
-  ansible_host_v="$(echo "$fields" | sed -n 's/^ansible_host=//p')"
-  ansible_user_v="$(echo "$fields" | sed -n 's/^ansible_user=//p')"
-  key_file="$(echo "$fields" | sed -n 's/^ansible_ssh_private_key_file=//p')"
-  rollback_timeout="$(echo "$fields" | sed -n 's/^ssh_hardening_rollback_timeout=//p')"
-  rollback_timeout="${rollback_timeout:-5min}"
-
-  if [[ -z "$target_port" || -z "$ansible_host_v" ]]; then
-    warn "Could not determine target port/host from inventory; verify access manually."
-    return
-  fi
-
-  log "Verifying access on the new port (${target_port})..."
-  local ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
-  [[ -n "$key_file" ]] && ssh_opts+=(-i "$key_file")
-  [[ -f "${INV_DIR}/.known_hosts" ]] && ssh_opts+=(-o "UserKnownHostsFile=${INV_DIR}/.known_hosts")
-
-  if ssh "${ssh_opts[@]}" -p "$target_port" "${ansible_user_v:-root}@${ansible_host_v}" "echo vpssecure-verified" < /dev/null >/dev/null 2>&1; then
-    ok "New port confirmed reachable."
-    if ansible-playbook -i "$INV_DIR" playbooks/ssh_hardening.yml --limit "$host_alias" --tags disarm-rollback < /dev/null >/dev/null 2>&1; then
-      ok "Rollback timer disarmed."
-    else
-      warn "Could not disarm the rollback timer automatically. It will fire harmlessly (config already matches) — no action needed."
-    fi
-    log "Update ansible_port to ${target_port} in ${INV_DIR}/hosts.yml for future runs."
-  else
-    err "Could not reach the server on the new port (${target_port})."
-    warn "If a rollback timer was armed, it restores the previous sshd_config and restarts sshd automatically within ${rollback_timeout}."
-    warn "Wait for that, then investigate before retrying — don't force anything in the meantime."
+    log "The role itself verified the new port and disarmed the rollback timer if reachable (see the 'verify new port' task output above)."
+    log "If that task warned it couldn't confirm the new port, don't touch anything — it self-heals within the configured timeout."
+    log "Once confirmed working, update ansible_port in ${INV_DIR}/hosts.yml to the target port for future runs."
   fi
 }
 
