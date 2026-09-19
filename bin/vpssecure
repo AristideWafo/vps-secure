@@ -58,7 +58,7 @@ trust_host_key() {
   require_bin ssh-keyscan
   require_bin ssh-keygen
 
-  if [[ -f "$known_hosts_file" ]] && grep -q "$(printf '[%s]:%s' "$host" "$port")" "$known_hosts_file" 2>/dev/null; then
+  if [[ -f "$known_hosts_file" ]] && grep -qF "$(printf '[%s]:%s' "$host" "$port")" "$known_hosts_file" 2>/dev/null; then
     ok "Host key already pinned for ${host}:${port} in ${known_hosts_file}"
     return 0
   fi
