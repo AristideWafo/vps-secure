@@ -26,6 +26,31 @@
     - ssh_hardening_verify_key_before_disabling_password | bool
     - ssh_hardening_password_authentication == "no"
 
+- name: ssh_hardening | back up current sshd_config before changing it
+  ansible.builtin.copy:
+    remote_src: true
+    src: /etc/ssh/sshd_config
+    dest: "{{ ssh_hardening_rollback_backup_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: ssh_hardening_enable_rollback_timer | bool
+
+- name: ssh_hardening | disarm any stale rollback timer from a previous run
+  ansible.builtin.command: systemctl stop vpssecure-rollback.timer vpssecure-rollback.service
+  register: ssh_hardening_stale_timer_stop
+  changed_when: ssh_hardening_stale_timer_stop.rc == 0
+  failed_when: false
+  when: ssh_hardening_enable_rollback_timer | bool
+
+- name: ssh_hardening | arm rollback timer (self-heals if never disarmed)
+  ansible.builtin.command:
+    cmd: >-
+      systemd-run --unit=vpssecure-rollback --on-active={{ ssh_hardening_rollback_timeout }}
+      /bin/bash -c 'cp {{ ssh_hardening_rollback_backup_path }} /etc/ssh/sshd_config && systemctl restart sshd'
+  changed_when: true
+  when: ssh_hardening_enable_rollback_timer | bool
+
 - name: ssh_hardening | deploy sshd_config
   ansible.builtin.template:
     src: sshd_config.j2
@@ -41,3 +66,19 @@
     name: sshd
     state: started
     enabled: true
+
+# Restart right away instead of deferring to end-of-play, so the actual risky
+# moment (sshd restart with the new config) stays inside the rollback timer's
+# window instead of trailing behind the ufw/fail2ban tasks that run after this.
+- name: ssh_hardening | apply sshd restart now (keep rollback window tight)
+  ansible.builtin.meta: flush_handlers
+
+# Only runs when explicitly requested via `--tags disarm-rollback`, after the
+# caller (vpssecure harden --apply) has confirmed the new sshd config works.
+# The "never" tag keeps it out of every normal run.
+- name: ssh_hardening | disarm rollback timer (config confirmed working)
+  ansible.builtin.command: systemctl stop vpssecure-rollback.timer vpssecure-rollback.service
+  register: ssh_hardening_disarm_result
+  changed_when: ssh_hardening_disarm_result.rc == 0
+  failed_when: false
+  tags: [never, disarm-rollback]
