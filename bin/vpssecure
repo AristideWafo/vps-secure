@@ -98,6 +98,20 @@ parse_common_args() {
   INV_DIR="inventories/${ENV}"
 }
 
+# Best-effort public IP detection so `init` can pre-whitelist the operator
+# in fail2ban. Never fatal: on failure the field is just left for the user
+# to fill in by hand. Tries a couple of independent services in case one is
+# down or blocked.
+detect_operator_ip() {
+  command -v curl >/dev/null 2>&1 || return 0
+  local ip
+  for url in "https://api.ipify.org" "https://ifconfig.me/ip"; do
+    ip="$(curl -fsS --max-time 3 "$url" 2>/dev/null || true)"
+    [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] && { echo "$ip"; return 0; }
+  done
+  return 0
+}
+
 cmd_init() {
   parse_common_args "$@"
 
@@ -141,6 +155,13 @@ cmd_init() {
     read -r -p "Paste the public key to authorize (leave empty to add later): " SRV_PUBKEY
   fi
 
+  OPERATOR_IP="$(detect_operator_ip)"
+  if [[ -n "$OPERATOR_IP" ]]; then
+    ok "Detected your public IP: ${OPERATOR_IP} (will be whitelisted in fail2ban so you can't ban yourself)"
+  else
+    warn "Could not auto-detect your public IP. Add it to ssh_hardening_fail2ban_ignore_ips yourself after checking 'curl ifconfig.me'."
+  fi
+
   cat > "${INV_DIR}/hosts.yml" <<YAML
 ---
 all:
@@ -171,7 +192,7 @@ ssh_authorized_keys:
 
 ssh_hardening_fail2ban_ignore_ips:
   - 127.0.0.1/8
-  - ::1
+  - ::1$([[ -n "$OPERATOR_IP" ]] && printf '\n  - %s  # auto-detected at init time, remove if this IP changes' "$OPERATOR_IP")
 YAML
 
   ok "Inventory written to ${INV_DIR}/"
