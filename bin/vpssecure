@@ -142,7 +142,7 @@ cmd_init() {
   read -r -p "Path to your SSH private key [~/.ssh/id_ed25519]: " SRV_KEY
   SRV_KEY="${SRV_KEY:-~/.ssh/id_ed25519}"
 
-  trust_host_key "$SRV_HOST" "$SRV_PORT_NOW" "${INV_DIR}/known_hosts"
+  trust_host_key "$SRV_HOST" "$SRV_PORT_NOW" "${INV_DIR}/.known_hosts"
 
   PUB_KEY_PATH="${SRV_KEY}.pub"
   PUB_KEY_PATH="${PUB_KEY_PATH/#\~/$HOME}"
@@ -173,7 +173,7 @@ all:
           ansible_user: ${SRV_USER}
           ansible_port: ${SRV_PORT_NOW}
           ansible_ssh_private_key_file: "${SRV_KEY}"
-          ansible_ssh_common_args: "-o UserKnownHostsFile=${INV_DIR}/known_hosts"
+          ansible_ssh_common_args: "-o UserKnownHostsFile=${INV_DIR}/.known_hosts"
 # First run: keep ansible_port at ${SRV_PORT_NOW} (password auth still enabled).
 # After a successful apply, switch ansible_port to ${SRV_PORT_TARGET}.
 YAML

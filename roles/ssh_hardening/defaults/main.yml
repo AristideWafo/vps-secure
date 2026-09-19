@@ -8,6 +8,13 @@ ssh_hardening_configure_fail2ban: true
 ssh_hardening_port: 2222
 ssh_hardening_permit_root_login: "no"
 ssh_hardening_password_authentication: "no"
+# Before flipping PasswordAuthentication to "no", verify a key-based SSH
+# connection actually succeeds using the same credentials this play is
+# already connecting with. Catches a deployed-but-wrong key (e.g. the
+# private key on the control node doesn't match what was authorized)
+# before it becomes a lockout. Only meaningful when disabling password
+# auth; skip only if you understand the risk.
+ssh_hardening_verify_key_before_disabling_password: true
 ssh_hardening_pubkey_authentication: "yes"
 ssh_hardening_permit_empty_passwords: "no"
 ssh_hardening_challenge_response: "no"
