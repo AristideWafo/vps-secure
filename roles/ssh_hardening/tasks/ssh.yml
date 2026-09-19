@@ -4,6 +4,28 @@
     name: openssh-server
     state: present
 
+- name: ssh_hardening | verify key-based auth works before disabling password auth
+  ansible.builtin.command:
+    cmd: >-
+      ssh -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=10
+      {{ ansible_ssh_common_args | default('') }}
+      {{ ('-i ' ~ ansible_ssh_private_key_file) if ansible_ssh_private_key_file is defined else '' }}
+      -p {{ ansible_port | default(22) }}
+      {{ ansible_user }}@{{ ansible_host | default(inventory_hostname) }}
+      echo vpssecure-key-check-ok
+  delegate_to: localhost
+  become: false
+  connection: local
+  changed_when: false
+  check_mode: false
+  register: ssh_hardening_key_check
+  failed_when: >-
+    ssh_hardening_key_check.rc != 0 or
+    'vpssecure-key-check-ok' not in ssh_hardening_key_check.stdout
+  when:
+    - ssh_hardening_verify_key_before_disabling_password | bool
+    - ssh_hardening_password_authentication == "no"
+
 - name: ssh_hardening | deploy sshd_config
   ansible.builtin.template:
     src: sshd_config.j2
