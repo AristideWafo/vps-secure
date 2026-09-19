@@ -47,6 +47,39 @@ require_bin() {
   command -v "$1" >/dev/null 2>&1 || { err "'$1' not found in PATH. Install it first."; exit 1; }
 }
 
+# Trust-on-first-use host key pinning. Scans the server's current host key,
+# shows its fingerprint for a human sanity check, and pins it to a
+# per-environment known_hosts file. Every later connection is made with
+# host key checking ON against that file (see ansible.cfg), so a changed
+# key — MITM, or a server rebuilt without telling you — hard-fails instead
+# of being silently trusted.
+trust_host_key() {
+  local host="$1" port="$2" known_hosts_file="$3"
+  require_bin ssh-keyscan
+  require_bin ssh-keygen
+
+  if [[ -f "$known_hosts_file" ]] && grep -qF "$(printf '[%s]:%s' "$host" "$port")" "$known_hosts_file" 2>/dev/null; then
+    ok "Host key already pinned for ${host}:${port} in ${known_hosts_file}"
+    return 0
+  fi
+
+  log "Scanning host key for ${host}:${port}..."
+  local scanned
+  scanned="$(ssh-keyscan -p "$port" -T 10 "$host" 2>/dev/null | grep -v '^$' || true)"
+  if [[ -z "$scanned" ]]; then
+    err "Could not fetch a host key from ${host}:${port}. Is the server reachable?"
+    exit 1
+  fi
+
+  echo "$scanned" | ssh-keygen -lf - 2>/dev/null | sed 's/^/    /'
+  read -r -p "Trust this host key? [y/N] " CONFIRM
+  [[ "$CONFIRM" =~ ^[Yy]$ ]] || { err "Host key not trusted. Aborting."; exit 1; }
+
+  mkdir -p "$(dirname "$known_hosts_file")"
+  echo "$scanned" >> "$known_hosts_file"
+  ok "Host key pinned to ${known_hosts_file}"
+}
+
 parse_common_args() {
   ENV="dev"
   LIMIT=""
@@ -95,6 +128,8 @@ cmd_init() {
   read -r -p "Path to your SSH private key [~/.ssh/id_ed25519]: " SRV_KEY
   SRV_KEY="${SRV_KEY:-~/.ssh/id_ed25519}"
 
+  trust_host_key "$SRV_HOST" "$SRV_PORT_NOW" "${INV_DIR}/known_hosts"
+
   PUB_KEY_PATH="${SRV_KEY}.pub"
   PUB_KEY_PATH="${PUB_KEY_PATH/#\~/$HOME}"
   SRV_PUBKEY=""
@@ -117,6 +152,7 @@ all:
           ansible_user: ${SRV_USER}
           ansible_port: ${SRV_PORT_NOW}
           ansible_ssh_private_key_file: "${SRV_KEY}"
+          ansible_ssh_common_args: "-o UserKnownHostsFile=${INV_DIR}/known_hosts"
 # First run: keep ansible_port at ${SRV_PORT_NOW} (password auth still enabled).
 # After a successful apply, switch ansible_port to ${SRV_PORT_TARGET}.
 YAML
